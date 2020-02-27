@@ -20,7 +20,7 @@
 
 // Headers -----------------
 #include "nokia5110.h"
-// #include "Nokia_5110_chars.h"
+#include "nokia5110_chars.h"
 
 // Struct --------------------------------------------------
 static struct {

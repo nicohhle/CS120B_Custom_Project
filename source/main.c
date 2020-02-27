@@ -60,6 +60,8 @@ enum TestState { Start,
                  Reset } TestState;
 
 int Test(int state) {
+  unsigned char resetButton = (~PINC) & 0x01;
+
   switch (state) {  // transitions
     case Start:
       state = Wait;
@@ -69,16 +71,21 @@ int Test(int state) {
       break;
     case Down:
       state = Wait;
+      break;
     case Wait:
       if (joyStickUp() == true)
         state = Up;
       else if (joyStickDown() == true)
         state = Down;
+      break;
     case Reset:
-      state = Wait;
+      state = Start;
+      break;
     default:
       break;
   }
+
+  if (resetButton) state = Reset;
 
   switch (state) {  // actions
     case Start:
@@ -90,30 +97,27 @@ int Test(int state) {
       PORTB = 0x02;
       break;
     case Wait:
-      if (joyStickUp() == true) {
-        PORTB = 0x01;
-      } else if (joyStickDown() == true) {
-        PORTB = 0x02;
-      }
       break;
     case Reset:
-      PORTB = 0x00;
+      PORTB = 0x01;
       break;
     default:
       break;
   }
+
+  return state;
 }
 
 ///////////////////// INITIALIZE /////////////////////
 
-void Initialize() {
-  unsigned char i = 0;
+// void Initialize() {
+//   unsigned char i = 0;
 
-  tasks[i].period = 1;
-  tasks[i].elapsedTime = tasks[i].period;
-  tasks[i].state = Start;
-  tasks[i].TickFct = &Test;
-}
+//   tasks[i].period = 1;
+//   tasks[i].elapsedTime = tasks[i].period;
+//   tasks[i].state = Start;
+//   tasks[i].TickFct = &Test;
+// }
 
 ///////////////////// MAIN /////////////////////
 
@@ -124,25 +128,26 @@ int main(void) {
   PORTC = 0xFF;  // Button (Input)
 
   DDRB = 0xFF;
-  PORTB = 0x00;  // Nokia 5110 (Output)
-  // DDRD = 0xFF; PORTD = 0x00; // LCD (Output)
+  PORTB = 0x00;  // Buttons --> Nokia 5110 (Output)
+  DDRD = 0xFF;
+  PORTD = 0x00;  // LCD (Output)
 
-  ADC_init();
-  PWM_on();
-
-  PORTA = 0x01;
+  // ADC_init();
+  // PWM_on();
 
   // Initialize();
 
   while (1) {
-    unsigned char i;
-    for (i = 0; i < tasksNum; i++) {
-      if (tasks[i].elapsedTime >= tasks[i].period) {
-        tasks[i].state = tasks[i].TickFct(tasks[i].state);
-        tasks[i].elapsedTime = 0;
-      }
-      tasks[i].elapsedTime += 1;
-    }
+    // unsigned char i;
+    // for (i = 0; i < tasksNum; i++) {
+    //   if (tasks[i].elapsedTime >= tasks[i].period) {
+    //     tasks[i].state = tasks[i].TickFct(tasks[i].state);
+    //     tasks[i].elapsedTime = 0;
+    //   }
+    //   tasks[i].elapsedTime += 1;
+    // }
+
+    PORTB = 0x02;
   }
   return 1;
 }
