@@ -18,6 +18,50 @@
 typedef enum boolean { true,
                        false } boolean;
 
+///////////////////// SOUNDS /////////////////////
+
+double sound[2] = {261.63, 130.81};
+double fail[4] = {392.0, 369.99, 349.23, 329.63};
+
+///////////////////// TIMER /////////////////////
+
+volatile unsigned char TimerFlag = 0;
+
+unsigned long _avr_timer_M = 1;
+unsigned long _avr_timer_cntcurr = 0;
+
+void TimerOn() {
+  TCCR1B = 0x0B;
+  OCR1A = 125;
+  TIMSK1 = 0x02;
+  TCNT1 = 0;
+
+  _avr_timer_cntcurr = _avr_timer_M;
+
+  SREG |= 0x80;
+}
+
+void TimerOff() {
+  TCCR1B = 0x00;
+}
+
+void TimerISR() {
+  TimerFlag = 1;
+}
+
+ISR(TIMER1_COMPA_vect) {
+  _avr_timer_cntcurr--;
+  if (_avr_timer_cntcurr == 0) {
+    TimerISR();
+    _avr_timer_cntcurr = _avr_timer_M;
+  }
+}
+
+void TimerSet(unsigned long M) {
+  _avr_timer_M = M;
+  _avr_timer_cntcurr = _avr_timer_M;
+}
+
 ///////////////////// TASK STRUCT /////////////////////
 
 typedef struct task {
@@ -57,55 +101,67 @@ enum TestState { Start,
                  Up,
                  Down,
                  Wait,
+                 WaitForButtonRelease,
                  Reset } TestState;
 
-int Test(int state) {
-  unsigned char resetButton = (~PINC) & 0x01;
+void Test() {
+  unsigned char resetButton = (~PINC) & 0x0F;
 
-  switch (state) {  // transitions
+  switch (TestState) {  // transitions
     case Start:
-      state = Wait;
+      TestState = Wait;
       break;
     case Up:
-      state = Wait;
+      TestState = Wait;
       break;
     case Down:
-      state = Wait;
+      TestState = Wait;
       break;
     case Wait:
-      if (joyStickUp() == true)
-        state = Up;
+      if (resetButton)
+        TestState = WaitForButtonRelease;
+      else if (joyStickUp() == true)
+        TestState = Up;
       else if (joyStickDown() == true)
-        state = Down;
+        TestState = Down;
+      break;
+    case WaitForButtonRelease:
+      TestState = (resetButton) ? WaitForButtonRelease : Reset;
       break;
     case Reset:
-      state = Start;
+      TestState = Start;
       break;
     default:
+      TestState = Start;
       break;
   }
 
-  if (resetButton) state = Reset;
-
-  switch (state) {  // actions
+  switch (TestState) {  // actions
     case Start:
+      PORTB = 0x00;
       break;
     case Up:
+      set_PWM(sound[0]);
       PORTB = 0x01;
       break;
     case Down:
+      set_PWM(sound[1]);
       PORTB = 0x02;
       break;
     case Wait:
+      set_PWM(0);
+      PORTB = 0x00;
+      break;
+    case WaitForButtonRelease:
+      PORTB = 0x00;
       break;
     case Reset:
-      PORTB = 0x01;
+      PORTB = 0x04;
       break;
     default:
+      TestState = Start;
       break;
   }
-
-  return state;
 }
 
 ///////////////////// INITIALIZE /////////////////////
@@ -132,8 +188,15 @@ int main(void) {
   DDRD = 0xFF;
   PORTD = 0x00;  // LCD (Output)
 
-  // ADC_init();
-  // PWM_on();
+  const unsigned long timerPeriod = 1;
+  unsigned long elapsedTime = 0;
+  TestState = Start;
+
+  TimerSet(timerPeriod);
+  TimerOn();
+
+  ADC_init();
+  PWM_on();
 
   // Initialize();
 
@@ -147,7 +210,18 @@ int main(void) {
     //   tasks[i].elapsedTime += 1;
     // }
 
-    PORTB = 0x02;
+    if (elapsedTime >= 100) {
+      Test();
+      elapsedTime = 0;
+    }
+
+    while (!TimerFlag)
+      ;
+    TimerFlag = 0;
+
+    elapsedTime += timerPeriod;
+
+    // PORTB = 0x01;
   }
   return 1;
 }
