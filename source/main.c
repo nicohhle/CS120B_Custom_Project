@@ -20,10 +20,13 @@
 #include "io.h"
 #include "pwm.h"
 
-unsigned char eepromScore EEMEM = 0;
+unsigned char eepromCurrScore EEMEM = 0;
+unsigned char eepromHighScore EEMEM = 0;
 
 typedef enum boolean { true,
                        false } boolean;
+
+boolean CharacterJump;
 
 ///////////////////// SOUNDS /////////////////////
 
@@ -98,167 +101,245 @@ boolean joyStickDown() {
   return (ADCValue < joyStickDownValue) ? true : false;
 }
 
+///////////////////// GAME /////////////////////
+
+enum GameState { Init,
+                 InitWait,
+                 StartGame,
+                 EndGame,
+                 RestartWait,
+                 Reset } GameState;
+
+boolean GameIsOver;
+boolean GameInProgress;
+
+unsigned char score;
+
+int Game(int state) {
+  unsigned char resetButton = (~PINC & 0x01) >> 4;
+
+  switch (state) {
+    case Init:
+      state = (joyStickUp() == true) ? InitWait : Init;
+      break;
+    case InitWait:
+      state = (joyStickUp() == true) ? InitWait : StartGame;
+      break;
+    case StartGame:
+      state = (GameIsOver == true) ? EndGame : StartGame;
+      break;
+    case EndGame:
+      state = (joyStickUp() == true) ? RestartWait : EndGame;
+      break;
+    case RestartWait:
+      state = (joyStickUp() == true) ? RestartWait : Reset;
+      break;
+    case Reset:
+      state = Init;
+    default:
+      break;
+  }
+
+  if (resetButton) state = Reset;
+
+  switch (state) {
+    case Init:
+      StartScreen();
+      eeprom_update_byte(&eepromCurrScore, 0);
+      eeprom_update_byte(&eepromHighScore, 0);
+      GameInProgress = false;
+      GameIsOver = false;
+      CharacterJump = false;
+      break;
+    case InitWait:
+      break;
+    case StartGame:
+      GameInProgress = true;
+      break;
+    case EndGame:
+      GameInProgress = false;
+      EndScreen();
+      break;
+    case RestartWait:
+      break;
+    case Reset:
+      StartScreen();
+
+    default:
+      break;
+  }
+
+  return state;
+}
+
 ///////////////////// START/END SCREENS /////////////////////
 
 void StartScreen() {
-  nokia_lcd_set_cursor(0, 0);
+  nokia_lcd_set_cursor(13, 5);
   nokia_lcd_write_char('D', 2);
   nokia_lcd_write_char('I', 1);
   nokia_lcd_write_char('N', 1);
   nokia_lcd_write_char('O', 1);
 
-  nokia_lcd_set_cursor(10, 20);
+  nokia_lcd_write_char(' ', 2);
+
   nokia_lcd_write_char('R', 2);
   nokia_lcd_write_char('U', 1);
   nokia_lcd_write_char('N', 1);
+
+  nokia_lcd_set_cursor(12, 27);
+  nokia_lcd_write_string("UP to start", 1);
+
+  nokia_lcd_set_cursor(20, 40);
+  nokia_lcd_write_char('Y', 1);
+  nokia_lcd_write_char(' ', 1);
+  nokia_lcd_write_char('Y', 1);
+  nokia_lcd_write_char('Y', 1);
+  nokia_lcd_write_char(' ', 1);
+  nokia_lcd_write_char('X', 1);
+  nokia_lcd_write_char(' ', 1);
+  nokia_lcd_write_char('Y', 1);
 }
 
 void EndScreen() {
-  nokia_lcd_set_cursor(5, 5);
+  nokia_lcd_set_cursor(10, 10);
   nokia_lcd_write_char('G', 2);
   nokia_lcd_write_char('A', 1);
   nokia_lcd_write_char('M', 1);
   nokia_lcd_write_char('E', 1);
 
-  nokia_lcd_set_cursor(15, 35);
+  nokia_lcd_write_char(' ', 2);
+
   nokia_lcd_write_char('O', 2);
   nokia_lcd_write_char('V', 1);
   nokia_lcd_write_char('E', 1);
   nokia_lcd_write_char('R', 1);
 
-  nokia_lcd_set_cursor(35, 0);
-  nokia_lcd_write_string("Move up to start", 1);
+  nokia_lcd_set_cursor(10, 35);
+  nokia_lcd_write_string("RESTART? ", 1);
+  nokia_lcd_write_char('X', 1);
+  nokia_lcd_write_char(' ', 1);
+  nokia_lcd_write_char('Y', 1);
 }
 
-///////////////////// TEST /////////////////////
+int FailSound(int pos) {
+  if (GameIsOver == true && pos < 4) {
+    set_PWM(fail[pos]);
+    return pos + 1;
+  }
 
-enum TestState { Start,
-                 Up,
-                 Down,
-                 Wait,
-                 WaitForButtonRelease,
-                 ResetTest };
+  return pos;
+}
 
-int Test(int TestState) {
-  unsigned char resetButton = (PINA & 0x10);
+///////////////////// CHARACTER ///////////////////////
 
-  switch (TestState) {  // transitions
-    case Start:
-      TestState = Wait;
+enum CharacterState { Ground,
+                      Jump1,
+                      Jump2,
+                      Jump3,
+                      Jump4,
+                      Jump5 } CharacterState;
+
+// boolean CharacterJump;
+unsigned char jumpingHeights[] = {5, 10, 15, 10, 5};
+
+int Character(int state) {
+  if (GameInProgress == false) return Ground;
+
+  unsigned char height;
+
+  switch (state) {  // transitions
+    case Ground:
+      state = (joyStickUp() == true) ? Jump1 : Ground;
       break;
-    case Up:
-      TestState = Wait;
-      break;
-    case Down:
-      TestState = Wait;
-      break;
-    case Wait:
-      if (resetButton)
-        TestState = WaitForButtonRelease;
-      else if (joyStickUp() == true)
-        TestState = Up;
-      else if (joyStickDown() == true)
-        TestState = Down;
-      else
-        TestState = Wait;
-      break;
-    case WaitForButtonRelease:
-      TestState = (resetButton) ? WaitForButtonRelease : ResetTest;
-      break;
-    case ResetTest:
-      TestState = Start;
+    case Jump5:
+      state = Ground;
       break;
     default:
-      TestState = Start;
+      state = state + 1;
       break;
   }
 
-  switch (TestState) {  // actions
-    case Start:
-      // PORTB = 0x00;
-      displayString("start");
+  switch (state) {  // actions
+    case Ground:
+      CharacterJump = false;
+      height = 0;
       break;
-    case Up:
-      if (eeprom_read_byte(&eepromScore) < 9) {
+    default:
+      CharacterJump = true;
+      if (state == Jump1)
         set_PWM(sound[0]);
-        eeprom_update_byte(&eepromScore, eeprom_read_byte(&eepromScore) + 1);
-      }
-      // nokia_lcd_write_string("Pressed UP", 1);
-      displayString("up");
-      // LCD_DisplayString(17, "up");
-      // PORTB = 0x01;
-      break;
-    case Down:
-      if (eeprom_read_byte(&eepromScore) > 0) {
+      else if (state == Jump5)
         set_PWM(sound[1]);
-        eeprom_update_byte(&eepromScore, eeprom_read_byte(&eepromScore) - 1);
-      }
-      // nokia_lcd_write_string("Pressed DOWN", 1);
-      displayString("down");
-      // LCD_DisplayString(17, "down");
-      // PORTB = 0x02;
-      break;
-    case Wait:
-      set_PWM(0);
-      // PORTB = 0x00;
-      break;
-    case WaitForButtonRelease:
-      // nokia_lcd_write_string("Waiting for RESET", 1);
-      displayString("wait");
-      // LCD_ClearScreen();
-      // PORTB = 0x00;
-      break;
-    case ResetTest:
-      // nokia_lcd_write_string("RESET", 1);
-      eeprom_update_byte(&eepromScore, 0);
-      displayString("reset");
-      // LCD_ClearScreen();
-      // LCD_DisplayString(1, "RESET");
-      // PORTB = 0x04;
-      break;
-    default:
-      TestState = Start;
+
+      height = jumpingHeights[state - 1];
       break;
   }
-  return TestState;
+
+  nokia_lcd_set_cursor(10, 39 - height);
+  nokia_lcd_write_char('X', 1);
+
+  return state;
 }
-unsigned char temp = 0;
+
+///////////////////// DISPLAY SCORE /////////////////////
+
+unsigned char curr = 0;
+unsigned char high = 0;
 enum DisplayStates { display };
+
 int Display(int state) {
   static unsigned char prev = 100;
-  temp = eeprom_read_byte(&eepromScore);
+  curr = eeprom_read_byte(&eepromCurrScore);
+  high = eeprom_read_byte(&eepromHighScore);
   switch (state) {
     case display:
-      if (temp != prev) {
-        LCD_DisplayString(1, "Score : ");
+      if (curr != prev) {
+        LCD_Cursor(1);
+        // LCD_DisplayString(1, "High Score : ");
+        LCD_WriteData('H');
+        LCD_Cursor(2);
+        LCD_WriteData('i');
+        LCD_Cursor(3);
+        LCD_WriteData('g');
+        LCD_Cursor(4);
+        LCD_WriteData('h');
+        LCD_Cursor(6);
+        LCD_WriteData('S');
+        LCD_Cursor(7);
+        LCD_WriteData('c');
+        LCD_Cursor(8);
+        LCD_WriteData('o');
         LCD_Cursor(9);
-        LCD_WriteData(temp + '0');
-        prev = temp;
+        LCD_WriteData('r');
+        LCD_Cursor(10);
+        LCD_WriteData('e');
+        LCD_Cursor(12);
+        LCD_WriteData(':');
+        LCD_Cursor(14);
+        LCD_WriteData(high + '0');
+
+        LCD_Cursor(17);
+        // LCD_DisplayString(1, "Score : ");
+        LCD_WriteData('S');
+        LCD_Cursor(18);
+        LCD_WriteData('c');
+        LCD_Cursor(19);
+        LCD_WriteData('o');
+        LCD_Cursor(20);
+        LCD_WriteData('r');
+        LCD_Cursor(21);
+        LCD_WriteData('e');
+        LCD_Cursor(23);
+        LCD_WriteData(':');
+        LCD_Cursor(25);
+        LCD_WriteData(curr + '0');
+
+        prev = curr;
       }
       break;
   }
   return state;
-}
-
-void displayString(char* string) {
-  if (strcmp(string, "start") == 0) {
-    nokia_lcd_set_cursor(0, 0);
-    nokia_lcd_write_char('Y', 1);
-  } else if (strcmp(string, "up") == 0) {
-    nokia_lcd_set_cursor(0, 10);
-    nokia_lcd_write_string("UP", 1);
-  } else if (strcmp(string, "down") == 0) {
-    nokia_lcd_set_cursor(0, 10);
-    nokia_lcd_write_string("DOWN", 1);
-  } else if (strcmp(string, "wait") == 0) {
-    nokia_lcd_set_cursor(0, 10);
-    nokia_lcd_write_string("WAIT", 1);
-  } else if (strcmp(string, "reset") == 0) {
-    nokia_lcd_set_cursor(0, 10);
-    nokia_lcd_write_string("RESET", 1);
-  } else {
-    nokia_lcd_clear();
-  }
 }
 
 ///////////////////// MAIN /////////////////////
@@ -277,43 +358,58 @@ int main(void) {
   const unsigned long timerPeriod = 50;
   // unsigned long elapsedTime = 0;
 
-  static task task1, task2;
-  task* tasks[] = {&task1, &task2};
+  static task task1, task2, task3, task4;
+  task* tasks[] = {&task1, &task2, &task3, &task4};
   const unsigned short numTasks = sizeof(tasks) / sizeof(task*);
 
-  task1.state = 0;
-  task1.period = 200;
+  task1.state = Init;
+  task1.period = 100;
   task1.elapsedTime = task1.period;
-  task1.TickFct = &Test;
+  task1.TickFct = &Game;
 
   task2.state = 0;
   task2.period = 50;
   task2.elapsedTime = task2.period;
-  task2.TickFct = &Display;
+  task2.TickFct = &Character;
 
-  TimerSet(timerPeriod);
-  TimerOn();
+  task3.state = 0;
+  task3.period = 50;
+  task3.elapsedTime = task3.period;
+  task3.TickFct = &Display;
+
+  task4.state = Ground;
+  task4.period = 50;
+  task4.elapsedTime = task4.period;
+  task4.TickFct = &FailSound;
 
   ADC_init();
   LCD_init();
   nokia_lcd_init();
   PWM_on();
 
-  LCD_ClearScreen();
+  // LCD_ClearScreen();
   // LCD_DisplayString(1, "test");
   // LCD_DisplayString(1, "Score : ");
-  // Initialize(false);
 
-  nokia_lcd_clear();
+  // nokia_lcd_clear();
   StartScreen();
-  nokia_lcd_set_cursor(55, 40);
-  nokia_lcd_write_char('X', 1);
-  nokia_lcd_set_cursor(75, 40);
-  nokia_lcd_write_char('Y', 1);
+  // EndScreen();
+  // nokia_lcd_set_cursor(55, 40);
+  // nokia_lcd_write_char('X', 1);
+  // nokia_lcd_set_cursor(75, 40);
+  // nokia_lcd_write_char('Y', 1);
+  int i;
+  for (i = 0; i < 80; ++i) {
+    nokia_lcd_set_pixel(i, 47, 1);
+  }
   nokia_lcd_render();
 
+  GameInProgress = false;
+  GameIsOver = false;
+  CharacterJump = false;
+
   while (1) {
-    // nokia_lcd_clear();
+    nokia_lcd_clear();
     unsigned char i;
     for (i = 0; i < numTasks; i++) {
       if (tasks[i]->elapsedTime >= tasks[i]->period) {
@@ -323,19 +419,11 @@ int main(void) {
       tasks[i]->elapsedTime += timerPeriod;
     }
 
-    // if (elapsedTime >= 200) {
-    //   // nokia_lcd_clear();
-    //   Test();
-    //   elapsedTime = 0;
-    // }
-
     while (!TimerFlag)
       ;
     TimerFlag = 0;
 
-    // elapsedTime += timerPeriod;
-
-    // nokia_lcd_render();
+    nokia_lcd_render();
   }
   return 1;
 }
