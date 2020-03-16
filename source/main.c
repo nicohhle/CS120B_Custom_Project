@@ -24,6 +24,7 @@
 // unsigned char eepromCurrScore EEMEM = 0;
 unsigned char score = 0;
 unsigned char eepromHighScore EEMEM = 0;
+signed char obstacles[] = {-1, -1, -1, -1, -1};
 
 typedef enum boolean { true,
                        false } boolean;
@@ -33,7 +34,7 @@ boolean characterJump;
 ///////////////////// SOUNDS /////////////////////
 
 double sound[2] = {261.63, 130.81};
-double fail[4] = {392.0, 369.99, 349.23, 329.63};
+double fail[7] = {466.16, 440.0, 415.3, 440.0, 415.3, 369.99, 0};
 
 ///////////////////// TIMER /////////////////////
 
@@ -108,13 +109,15 @@ boolean joyStickDown() {
 
 ///////////////////// GAME /////////////////////
 
-enum GameState { Init,
-                 InitWait,
-                 StartGame,
-                 EndGame,
-                 PassGame,
-                 RestartWait,
-                 Reset } GameState;
+enum GameState {
+  Init,
+  InitWait,
+  StartGame,
+  EndGame,
+  PassGame,
+  RestartWait,
+  Reset
+} GameState;
 
 boolean gameIsOver;
 boolean gameInProgress;
@@ -123,14 +126,30 @@ boolean gameDone;
 unsigned char score;
 
 int Game(int state) {
-  unsigned char resetButton = (~PINC & 0x01) >> 4;
+  unsigned char resetButton = PINA & 0x10;
 
   switch (state) {  // transitions
     case Init:
-      if (joyStickUp() == true) state = InitWait;
+      score = 0;
+      // eeprom_update_byte(&eepromHighScore, 0);
+      gameInProgress = false;
+      gameIsOver = false;
+      gameDone = false;
+      characterJump = false;
+
+      set_PWM(0);
+
+      unsigned char j = 0;
+      for (j = 0; j < 5; ++j) {
+        obstacles[j] = -1;
+      }
+      state = InitWait;
       break;
     case InitWait:
-      if (joyStickUp() == true) state = StartGame;
+      StartScreen();
+      if (joyStickUp() == true)
+        state = StartGame;
+
       break;
     case StartGame:
       if (gameIsOver == true)
@@ -151,32 +170,30 @@ int Game(int state) {
         state = Reset;
       break;
     case Reset:
-      state = Init;
+      state = InitWait;
       break;
     default:
+      state = Init;
       break;
   }
 
-  if (resetButton) state = Reset;
+  if (resetButton) {
+    eeprom_update_byte(&eepromHighScore, 0);
+    state = Reset;
+  }
 
   switch (state) {  // actions
     case Init:
-      StartScreen();
-      // score = 0;
-      // eeprom_update_byte(&eepromHighScore, 0);
-      // gameInProgress = false;
-      // gameIsOver = false;
-      // characterJump = false;
       break;
     case InitWait:
-      score = 1;
+      // score = 1;
       break;
     case StartGame:
-      score = 2;
+      // score = 2;
       gameInProgress = true;
       break;
     case EndGame:
-      // gameInProgress = false;
+      gameInProgress = false;
       gameIsOver = true;
       EndScreen();
       break;
@@ -187,9 +204,20 @@ int Game(int state) {
     case RestartWait:
       break;
     case Reset:
-      score = 3;
-      Initialize(false);
-      StartScreen();
+      // StartScreen();
+      score = 0;
+      gameInProgress = false;
+      gameIsOver = false;
+      gameDone = false;
+
+      characterJump = false;
+
+      set_PWM(0);
+
+      unsigned char j = 0;
+      for (j = 0; j < 5; ++j) {
+        obstacles[j] = -1;
+      }
 
     default:
       break;
@@ -198,9 +226,11 @@ int Game(int state) {
   return state;
 }
 
-///////////////////// START/END SCREENS /////////////////////
+///////////////////// SCREENS /////////////////////
 
 void StartScreen() {
+  nokia_lcd_clear();
+
   nokia_lcd_set_cursor(13, 5);
   nokia_lcd_write_char('D', 2);
   nokia_lcd_write_char('I', 1);
@@ -228,6 +258,8 @@ void StartScreen() {
 }
 
 void EndScreen() {
+  nokia_lcd_clear();
+
   nokia_lcd_set_cursor(7, 10);
   nokia_lcd_write_char('G', 2);
   nokia_lcd_write_char('A', 1);
@@ -251,6 +283,8 @@ void EndScreen() {
 }
 
 void PassScreen() {
+  nokia_lcd_clear();
+
   nokia_lcd_set_cursor(7, 10);
   nokia_lcd_write_char('G', 2);
   nokia_lcd_write_char('A', 1);
@@ -274,7 +308,7 @@ void PassScreen() {
 }
 
 int FailSound(int pos) {
-  if (gameIsOver == true && pos < 4) {
+  if (gameIsOver == true && pos < 7) {
     set_PWM(fail[pos]);
     return pos + 1;
   }
@@ -293,6 +327,8 @@ enum CharacterState { Ground,
 unsigned char jumpingHeights[] = {5, 10, 15, 10, 5};
 
 int Character(int state) {
+  nokia_lcd_clear();
+
   if (gameInProgress == false) return Ground;
 
   unsigned char height;
@@ -316,10 +352,10 @@ int Character(int state) {
       break;
     default:
       characterJump = true;
-      if (state == Jump1)
+      if (state == Jump1 || state == Jump2 || state == Jump3)
         set_PWM(sound[0]);
-      else if (state == Jump5)
-        set_PWM(sound[1]);
+      else
+        set_PWM(0);
 
       height = jumpingHeights[state - 1];
       break;
@@ -337,25 +373,25 @@ int PlayGame(int pos) {
     return -6;
   }
 
-  if (pos >= 60) gameDone = true;
+  if (pos >= 50) gameDone = true;
 
   MakeObstacle(pos);
 
   if (pos < 0)
     return pos + 1;
-  else if (pos >= 60)
+  else if (pos >= 50)
     return pos;
 
   return pos + 1;
 }
 
-signed char obstacles[] = {-1, -1, -1, -1, -1};
+// signed char obstacles[] = {-1, -1, -1, -1, -1};
 
 unsigned const char initialPos = 79;
 
 void MakeObstacle(int pos) {
-  if ((pos - 1) >= 0) {
-    if (gameObstacles[pos - 1] == 1 && (pos - 1) < 60) {
+  if ((pos - 1) >= 0 && (pos - 1) < 50) {
+    if (gameObstacles[pos - 1] == 1) {
       if (characterJump == true) {
         score = score + 1;
       } else {
@@ -365,11 +401,11 @@ void MakeObstacle(int pos) {
   }
 
   // 6 to wait
-  if ((pos + 6) >= 0 && (pos + 6) < 60) {
+  if ((pos + 6) >= 0 && (pos + 6) < 50) {
     if (gameObstacles[pos + 6] == 1) {
-      for (int i = 0; i < 60; ++i) {
+      for (int i = 0; i < 5; ++i) {
         if (obstacles[i] < 0) {
-          obstacles[i] = 79;
+          obstacles[i] = initialPos;
           break;
         }
       }
@@ -379,7 +415,8 @@ void MakeObstacle(int pos) {
 
 int MoveObstacle(int state) {
   if (gameInProgress == false) return 0;
-  for (int i = 0; i < 60; ++i) {
+
+  for (int i = 0; i < 5; ++i) {
     obstacles[i] = DrawObstacle(obstacles[i]);
   }
 
@@ -388,6 +425,7 @@ int MoveObstacle(int state) {
 
 int DrawObstacle(int pos) {
   if (pos <= 0) return -1;
+
   nokia_lcd_set_cursor(pos, 40);
   nokia_lcd_write_char('Y', 1);
 
@@ -407,7 +445,7 @@ int Display(int state) {
   high = eeprom_read_byte(&eepromHighScore);
   switch (state) {
     case display:
-      if (high != prev) {
+      if (score != prev) {
         LCD_Cursor(1);
         // LCD_DisplayString(1, "High Score : ");
         LCD_WriteData('H');
@@ -430,6 +468,8 @@ int Display(int state) {
         LCD_Cursor(12);
         LCD_WriteData(':');
         LCD_Cursor(14);
+        if (high < score) eeprom_update_byte(&eepromHighScore, score);
+        high = eeprom_read_byte(&eepromHighScore);
         LCD_WriteData(high + '0');
 
         LCD_Cursor(17);
@@ -449,84 +489,16 @@ int Display(int state) {
         // LCD_WriteData(curr + '0');
         LCD_WriteData(score + '0');
 
-        prev = high;
+        prev = score;
       }
       break;
   }
   return state;
 }
 
-///////////////////// INITIALIZE /////////////////////
-
-void Initialize(boolean goingOn) {
-  score = 0;
-  eeprom_update_byte(&eepromHighScore, 0);
-  gameInProgress = false;
-  gameIsOver = false;
-  gameDone = false;
-
-  if (goingOn == false) {
-    score = 0;
-  }
-
-  characterJump = false;
-
-  set_PWM(0);
-
-  for (unsigned char j = 0; j < 5; ++j) {
-    obstacles[j] = -1;
-  }
-
-  unsigned char i = 0;
-
-  // Controls game
-  tasks[i].period = 1;
-  tasks[i].elapsedTime = tasks[i].period;
-  tasks[i].state = Init;
-  tasks[i].TickFct = &Game;
-
-  i++;
-
-  // Controls character
-  tasks[i].period = 1;
-  tasks[i].elapsedTime = tasks[i].period;
-  tasks[i].state = Ground;
-  tasks[i].TickFct = &Character;
-
-  i++;
-
-  // Display score + high score
-  tasks[i].period = 1;
-  tasks[i].elapsedTime = tasks[i].period;
-  tasks[i].state = display;
-  tasks[i].TickFct = &Display;
-
-  i++;
-
-  // Sound for end of game
-  tasks[i].period = 1;
-  tasks[i].elapsedTime = tasks[i].period;
-  tasks[i].state = 0;
-  tasks[i].TickFct = &FailSound;
-
-  i++;
-
-  // Where produce obstacles happens
-  tasks[i].period = 2;
-  tasks[i].elapsedTime = tasks[i].period;
-  tasks[i].state = -6;
-  tasks[i].TickFct = &MoveObstacle;
-
-  i++;
-
-  // Move obstacles along screen
-  tasks[i].period = 1;
-  tasks[i].elapsedTime = tasks[i].period;
-  tasks[i].state = 0;
-  tasks[i].TickFct = &MoveObstacle;
-}
-
 ///////////////////// MAIN /////////////////////
+
+//GameState state = Start;
 
 int main(void) {
   DDRA = 0x00;
@@ -544,32 +516,72 @@ int main(void) {
   nokia_lcd_init();
   PWM_on();
 
-  const unsigned long timerPeriod = 50;
+  const unsigned long timerPeriod = 10;
+
+  TimerSet(timerPeriod);
+  TimerOn();
+
   // unsigned long elapsedTime = 0;
 
-  // static task task1, task2, task3, task4;
-  // task* tasks[] = {&task1, &task2, &task3, &task4};
-  // const unsigned short numTasks = sizeof(tasks) / sizeof(task*);
+  static task task1, task2, task3, task4, task5, task6;
+  task* tasks[] = {&task1, &task2, &task3, &task4, &task5, &task6};
+  const unsigned short numTasks = sizeof(tasks) / sizeof(task*);
 
-  // task1.state = 0;
-  // task1.period = 50;
-  // task1.elapsedTime = task1.period;
-  // task1.TickFct = &Game;
+  task1.state = 0;
+  task1.period = 50;
+  task1.elapsedTime = task1.period;
+  task1.TickFct = &Character;
 
+  task2.state = -6;
+  task2.period = 100;
+  task2.elapsedTime = task2.period;
+  task2.TickFct = &PlayGame;
+
+  task3.state = 0;
+  task3.period = 50;
+  task3.elapsedTime = task3.period;
+  task3.TickFct = &MoveObstacle;
+
+  task4.state = 0;
+  task4.period = 50;
+  task4.elapsedTime = task4.period;
+  task4.TickFct = &Game;
+
+  task5.state = 0;
+  task5.period = 50;
+  task5.elapsedTime = task5.period;
+  task5.TickFct = &Display;
+
+  task6.state = 0;
+  task6.period = 50;
+  task6.elapsedTime = task6.period;
+  task6.TickFct = &FailSound;
+
+  //-------------------------------------------------
   // task2.state = 0;
-  // task2.period = 50;
+  // task2.period = 1;
   // task2.elapsedTime = task2.period;
-  // task2.TickFct = &Character;
+  // task2.TickFct = &Game;
 
   // task3.state = 0;
-  // task3.period = 50;
+  // task3.period = 1;
   // task3.elapsedTime = task3.period;
   // task3.TickFct = &Display;
 
   // task4.state = 0;
-  // task4.period = 50;
+  // task4.period = 1;
   // task4.elapsedTime = task4.period;
   // task4.TickFct = &FailSound;
+
+  // task5.state = -6;
+  // task5.period = 2;
+  // task5.elapsedTime = task5.period;
+  // task5.TickFct = &PlayGame;
+
+  // task6.state = 0;
+  // task6.period = 1;
+  // task6.elapsedTime = task6.period;
+  // task6.TickFct = &MoveObstacle;
 
   // ------------------------------------------
 
@@ -584,15 +596,22 @@ int main(void) {
   // nokia_lcd_write_char('X', 1);
   // nokia_lcd_set_cursor(75, 40);
   // nokia_lcd_write_char('Y', 1);
+  // nokia_lcd_render();
 
+  // score = 0;
+  // eeprom_update_byte(&eepromHighScore, 0);
   // gameInProgress = false;
-  // gameIsOver = true;
+  // gameIsOver = false;
+  // gameDone = false;
+
   // characterJump = false;
 
-  Initialize(false);
+  // TESTING
+  // long gameElapsedTime = 0;
+  // long gamePeriod = 1000;
 
   while (1) {
-    nokia_lcd_clear();
+    // nokia_lcd_clear();
 
     // unconditional border display
     int j;
@@ -602,22 +621,13 @@ int main(void) {
     }
     nokia_lcd_render();
 
-    // unsigned char i;
-    // for (i = 0; i < numTasks; i++) {
-    //   if (tasks[i]->elapsedTime >= tasks[i]->period) {
-    //     tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
-    //     tasks[i]->elapsedTime = 0;
-    //   }
-    //   tasks[i]->elapsedTime += timerPeriod;
-    // }
-
-    unsigned char i;
-    for (i = 0; i < numTasks; i++) {
-      if (tasks[i].elapsedTime >= tasks[i].period) {
-        tasks[i].state = tasks[i].TickFct(tasks[i].state);
-        tasks[i].elapsedTime = 0;
+    int i;
+    for (i = 0; i < 6; i++) {
+      if (tasks[i]->elapsedTime >= tasks[i]->period) {
+        tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
+        tasks[i]->elapsedTime = 0;
       }
-      tasks[i].elapsedTime += 1;
+      tasks[i]->elapsedTime += timerPeriod;
     }
 
     nokia_lcd_render();
@@ -625,8 +635,6 @@ int main(void) {
     while (!TimerFlag)
       ;
     TimerFlag = 0;
-
-    // nokia_lcd_render();
   }
   return 1;
 }
