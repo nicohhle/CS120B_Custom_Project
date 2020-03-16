@@ -557,32 +557,6 @@ int main(void) {
   task6.elapsedTime = task6.period;
   task6.TickFct = &FailSound;
 
-  //-------------------------------------------------
-  // task2.state = 0;
-  // task2.period = 1;
-  // task2.elapsedTime = task2.period;
-  // task2.TickFct = &Game;
-
-  // task3.state = 0;
-  // task3.period = 1;
-  // task3.elapsedTime = task3.period;
-  // task3.TickFct = &Display;
-
-  // task4.state = 0;
-  // task4.period = 1;
-  // task4.elapsedTime = task4.period;
-  // task4.TickFct = &FailSound;
-
-  // task5.state = -6;
-  // task5.period = 2;
-  // task5.elapsedTime = task5.period;
-  // task5.TickFct = &PlayGame;
-
-  // task6.state = 0;
-  // task6.period = 1;
-  // task6.elapsedTime = task6.period;
-  // task6.TickFct = &MoveObstacle;
-
   // ------------------------------------------
 
   // LCD_ClearScreen();
